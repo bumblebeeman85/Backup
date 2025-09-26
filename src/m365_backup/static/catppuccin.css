@@ -1,0 +1,10 @@
+/* Minimal placeholder for Catppuccin Macchiato theme colors */
+:root{
+  --bg:#24273a;--fg:#c6d0f5;--muted:#9aa4d6;--accent:#c4a7e7;--surface:#1e1e2e
+}
+body{background:var(--bg);color:var(--fg);font-family:Inter,system-ui,Arial}
+main{max-width:1000px;margin:2rem auto;padding:1rem}
+h1{color:var(--accent)}
+table{width:100%;border-collapse:collapse}
+th,td{padding:.5rem;border-bottom:1px solid rgba(255,255,255,0.04)}
+a{color:var(--accent)}

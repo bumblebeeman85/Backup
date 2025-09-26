@@ -1,0 +1,21 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>Snapshot {{ snapshot_id }}</title>
+    <link rel="stylesheet" href="/static/catppuccin.css">
+  </head>
+  <body>
+    <main>
+      <h1>Snapshot {{ snapshot_id }}</h1>
+      <table>
+        <thead><tr><th>Tenant</th><th>User</th><th>Message ID</th></tr></thead>
+        <tbody>
+        {% for m in messages %}
+          <tr><td>{{ m.tenant }}</td><td>{{ m.user_principal }}</td><td>{{ m.message_id }}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </main>
+  </body>
+</html>

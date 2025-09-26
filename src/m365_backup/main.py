@@ -22,6 +22,10 @@ from email import policy
 from email.parser import BytesParser
 from email.utils import getaddresses
 
+# local modules
+from . import db
+from .scheduler import start_scheduler
+
 # Configuration via env vars (can be overridden per-tenant)
 BACKUP_DIR = os.environ.get("BACKUP_DIR", "./m365_mail_backups")
 DEFAULT_MAILS_PER_USER = int(os.environ.get("MAILS_PER_USER", "200"))
@@ -98,7 +102,7 @@ def download_message_attachments(user_id: str, msg_id: str, token: str, attach_t
             logger.debug("Saved attachment metadata %s", meta_path)
 
 
-def backup_mailbox(user: Dict[str, Any], token: str, mails_per_user: Optional[int], download_attachments: bool, tenant_dir: str) -> None:
+def backup_mailbox(user: Dict[str, Any], token: str, mails_per_user: Optional[int], download_attachments: bool, tenant_dir: str) -> List[Dict[str, Any]]:
     user_dir = os.path.join(tenant_dir, user.get("userPrincipalName") or user.get("id"))
     os.makedirs(user_dir, exist_ok=True)
     logger.info("Backing up %s (%s)", user.get("displayName"), user.get("userPrincipalName"))
@@ -108,6 +112,7 @@ def backup_mailbox(user: Dict[str, Any], token: str, mails_per_user: Optional[in
     url = f"https://graph.microsoft.com/v1.0/users/{user['id']}/messages?$top={page_size}"
     headers = {"Authorization": f"Bearer {token}"}
     downloaded = 0
+    collected: List[Dict[str, Any]] = []
 
     while url:
         r = requests.get(url, headers=headers)
@@ -134,12 +139,21 @@ def backup_mailbox(user: Dict[str, Any], token: str, mails_per_user: Optional[in
             except Exception:
                 logger.exception("Error fetching raw MIME for %s", msg_id)
             downloaded += 1
+            try:
+                collected.append({
+                    'tenant': os.path.basename(tenant_dir),
+                    'user_principal': user.get('userPrincipalName'),
+                    'message_id': msg_id,
+                    'message_json': msg,
+                })
+            except Exception:
+                logger.exception('Failed to collect message for DB')
             if download_attachments:
                 attach_dir = os.path.join(user_dir, "attachments", msg_id)
                 download_message_attachments(user["id"], msg_id, token, attach_dir)
-            if remaining is not None and downloaded >= mails_per_user:
-                url = None
-                break
+                if remaining is not None and downloaded >= mails_per_user:
+                    url = None
+                    break
         if url:
             url = data.get("@odata.nextLink", None)
             if url and remaining is not None:
@@ -150,15 +164,17 @@ def backup_mailbox(user: Dict[str, Any], token: str, mails_per_user: Optional[in
                     if left < page_size:
                         url = f"https://graph.microsoft.com/v1.0/users/{user['id']}/messages?$top={left}"
 
+    # finished paging
+    return collected
 
-def backup_tenant(tenant: Dict[str, Any], global_options: Dict[str, Any]) -> None:
+def backup_tenant(tenant: Dict[str, Any], global_options: Dict[str, Any]) -> List[Dict[str, Any]]:
     # get credentials from tenant dict or env vars
     client_id = tenant.get("client_id") or os.environ.get("CLIENT_ID")
     client_secret = tenant.get("client_secret") or os.environ.get("CLIENT_SECRET")
     tenant_id = tenant.get("tenant_id") or os.environ.get("TENANT_ID")
     if not (client_id and client_secret and tenant_id):
         logger.error("Missing credentials for tenant: %s", tenant.get("name") or tenant_id)
-        return
+        return []
     mails_per_user = tenant.get("mails_per_user", global_options.get("mails_per_user"))
     download_attachments_flag = tenant.get("download_attachments", global_options.get("download_attachments"))
 
@@ -167,7 +183,7 @@ def backup_tenant(tenant: Dict[str, Any], global_options: Dict[str, Any]) -> Non
         token = get_token_for_tenant(client_id, client_secret, tenant_id)
     except Exception as e:
         logger.exception("Failed to get token for tenant %s: %s", tenant.get("name"), e)
-        return
+        return []
 
     # create tenant dir
     tenant_dir = os.path.join(BACKUP_DIR, tenant.get("name") or tenant_id)
@@ -181,17 +197,25 @@ def backup_tenant(tenant: Dict[str, Any], global_options: Dict[str, Any]) -> Non
         r = requests.get(url, headers=headers)
         if r.status_code != 200:
             logger.error("Failed to list users for tenant %s: %s", tenant.get("name"), r.text)
-            return
+            return []
         data = r.json()
         users.extend(data.get("value", []))
         url = data.get("@odata.nextLink", None)
     logger.info("Found %d users for tenant %s", len(users), tenant.get("name"))
 
+    collected_all: List[Dict[str, Any]] = []
     for user in users:
         if has_mailbox(user["id"], token):
-            backup_mailbox(user, token, mails_per_user, download_attachments_flag, tenant_dir)
+            try:
+                msgs = backup_mailbox(user, token, mails_per_user, download_attachments_flag, tenant_dir)
+                if msgs:
+                    collected_all.extend(msgs)
+            except Exception:
+                logger.exception('Error backing up user %s', user.get('userPrincipalName'))
         else:
             logger.debug("Skipping user without mailbox: %s", user.get("userPrincipalName"))
+
+    return collected_all
 
 # --- Restore helpers ---
 
@@ -297,7 +321,7 @@ def restore_user_from_eml(user_principal: str, user_id: str, token: str, user_di
 def cli(argv: Optional[List[str]] = None) -> int:
     global BACKUP_DIR
     parser = argparse.ArgumentParser(description="M365 mailbox backup tool")
-    parser.add_argument("action", choices=["backup", "restore"], help="Action to perform")
+    parser.add_argument("action", choices=["backup", "restore", "web", "snapshot"], help="Action to perform")
     parser.add_argument("--tenants", default="tenants.yaml", help="Path to tenants YAML file")
     parser.add_argument("--backup-dir", default=BACKUP_DIR, help="Directory to store backups")
     parser.add_argument("--mails-per-user", type=int, default=DEFAULT_MAILS_PER_USER)
@@ -310,6 +334,34 @@ def cli(argv: Optional[List[str]] = None) -> int:
     if args.action == "restore":
         logger.warning("Restore is not implemented yet. Exiting.")
         return 2
+
+    if args.action == "web":
+        # run uvicorn directly when using python -m m365_backup.main web
+        try:
+            import uvicorn
+        except Exception:
+            logger.error('uvicorn not installed')
+            return 2
+        # serve app
+        uvicorn.run('m365_backup.web:app', host='0.0.0.0', port=6666)
+        return 0
+
+    if args.action == 'snapshot':
+        label = os.environ.get('SNAPSHOT_LABEL') or None
+        # load tenants
+        tenants = load_tenants(args.tenants)
+        global_options = {"mails_per_user": args.mails_per_user, "download_attachments": args.attachments}
+        # initialize DB and store snapshot results
+        db.init_db()
+        total_inserted = 0
+        for tenant in tenants:
+            collected = backup_tenant(tenant, global_options)
+            if collected:
+                sid, inserted = db.store_snapshot(label, collected)
+                total_inserted += inserted
+                logger.info('Snapshot stored %s inserted %d', sid, inserted)
+        logger.info('Snapshot complete, inserted %d messages', total_inserted)
+        return 0
 
     # load tenants
     try:

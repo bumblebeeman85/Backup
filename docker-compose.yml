@@ -1,0 +1,48 @@
+version: '3.8'
+services:
+  db:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: m365backup
+    volumes:
+      - m365_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/m365backup
+      BACKUP_DIR: /data/m365_mail_backups
+    volumes:
+      - ./:/app
+      - m365_backups:/data
+    ports:
+      - "6666:6666"
+    command: ["uvicorn", "m365_backup.web:app", "--host", "0.0.0.0", "--port", "6666"]
+
+  scheduler:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/m365backup
+      BACKUP_DIR: /data/m365_mail_backups
+    volumes:
+      - ./:/app
+      - m365_backups:/data
+    command: ["python", "/app/scripts/scheduler_runner.py"]
+
+volumes:
+  m365_db_data:
+  m365_backups:

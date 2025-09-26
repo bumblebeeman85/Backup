@@ -15,5 +15,11 @@ ENV PYTHONPATH=/app/src
 ENV BACKUP_DIR=/data/m365_mail_backups
 VOLUME ["/data"]
 
-# Default command: run backup using tenants.yaml in the mounted working dir
-CMD ["python", "-m", "m365_backup.main", "backup", "--tenants", "tenants.yaml"]
+# Expose web GUI port
+EXPOSE 6666
+
+# Add a small scheduler runner script
+COPY scripts/scheduler_runner.py /app/scripts/scheduler_runner.py
+
+# Default command: run uvicorn serving the web GUI on port 6666
+CMD ["uvicorn", "m365_backup.web:app", "--host", "0.0.0.0", "--port", "6666"]
