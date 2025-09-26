@@ -37,8 +37,16 @@ cd Backup
 ```
 
 ### 3. Prepare configuration
-- Copy `tenants.example.yaml` to `tenants.yaml` and fill in your tenant info.
-- Store secrets in environment variables or `tenants.secret.yaml` (never commit secrets).
+- Copy `.env.example` to `.env` and fill in your tenant info. Beispiel:
+
+```env
+DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/m365backup
+TENANT_ID=dein-tenant-id
+CLIENT_ID=dein-client-id
+CLIENT_SECRET=dein-client-secret
+BACKUP_PATH=m365_mail_backups
+SCHEDULE=0 3 * * *
+```
 
 ### 4. Build and start the stack
 ```bash
@@ -87,8 +95,7 @@ CREATE DATABASE m365backup;
 You may need to set a password for the `postgres` user and update `DATABASE_URL` in your environment or `.env` file.
 
 ### 5. Prepare configuration
-- Copy `tenants.example.yaml` to `tenants.yaml` and fill in your tenant info.
-- Store secrets in environment variables or `tenants.secret.yaml` (never commit secrets).
+- Copy `.env.example` to `.env` and trage deine Werte ein (siehe Beispiel oben).
 
 ### 6. Running the App
 - Run a backup manually:
@@ -137,8 +144,16 @@ cd Backup
 ```
 
 ### 3. Prepare configuration
-- Copy `tenants.example.yaml` to `tenants.yaml` and fill in your tenant info.
-- Store secrets in environment variables or `tenants.secret.yaml` (never commit secrets).
+- Copy `.env.example` to `.env` and fill in your tenant info. Beispiel:
+
+```env
+DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/m365backup
+TENANT_ID=dein-tenant-id
+CLIENT_ID=dein-client-id
+CLIENT_SECRET=dein-client-secret
+BACKUP_PATH=m365_mail_backups
+SCHEDULE=0 3 * * *
+```
 
 ### 4. Build and start the stack
 ```bash

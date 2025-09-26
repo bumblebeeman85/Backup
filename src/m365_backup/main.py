@@ -17,7 +17,7 @@ from typing import Dict, Any, List, Optional
 
 import requests
 import msal
-import yaml
+from dotenv import load_dotenv
 from email import policy
 from email.parser import BytesParser
 from email.utils import getaddresses
@@ -26,13 +26,14 @@ from email.utils import getaddresses
 from . import db
 from .scheduler import start_scheduler
 
-# Configuration via env vars (can be overridden per-tenant)
+load_dotenv()
+# Konfiguration ausschließlich via Umgebungsvariablen aus .env
 BACKUP_DIR = os.environ.get("BACKUP_DIR", "./m365_mail_backups")
 DEFAULT_MAILS_PER_USER = int(os.environ.get("MAILS_PER_USER", "200"))
 DEFAULT_DOWNLOAD_ATTACHMENTS = os.environ.get("DOWNLOAD_ATTACHMENTS", "true").lower() in ("1", "true", "yes")
 SCOPES = ["https://graph.microsoft.com/.default"]
 
-# logging
+logger = logging.getLogger("m365_backup")
 logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
 logger = logging.getLogger("m365_backup")
 
@@ -42,15 +43,13 @@ os.makedirs(BACKUP_DIR, exist_ok=True)
 
 def load_tenants(path: str = "tenants.yaml") -> List[Dict[str, Any]]:
     """Load tenant definitions from YAML file. Returns a list of tenant dicts."""
-    if not os.path.exists(path):
-        raise FileNotFoundError(f"Tenants file not found: {path}")
-    with open(path, "r", encoding="utf-8") as f:
-        data = yaml.safe_load(f) or {}
-    tenants = data.get("tenants") or []
-    # allow single-tenant top-level mapping
-    if isinstance(tenants, dict):
-        tenants = [tenants]
-    return tenants
+    # Beispiel: Nur ein Tenant aus .env
+    tenant = {
+        "tenant_id": os.environ.get("TENANT_ID"),
+        "client_id": os.environ.get("CLIENT_ID"),
+        "client_secret": os.environ.get("CLIENT_SECRET"),
+    }
+    return [tenant] if all(tenant.values()) else []
 
 # --- Auth ---
 
