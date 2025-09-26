@@ -1,0 +1,14 @@
+[project]
+name = "M365 Iron Backup"
+version = "0.1.0"
+description = "Microsoft 365 mailbox backup tool for Iron Geeks"
+readme = "README.md"
+requires-python = ">=3.11"
+
+[project.dependencies]
+msal = "^1.20"
+requests = "^2.28"
+PyYAML = "^6.0"
+
+[project.scripts]
+m365-iron-backup = "m365_backup.main:cli"
