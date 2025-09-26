@@ -1,19 +1,29 @@
-# Byte-compiled / optimized / DLL files
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
-
-# Virtual environment
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.env
+.venv/
 venv/
+ENV/
 
-# Backup output and tenant secrets
-m365_mail_backups/
-tenants.secret.yaml
-
-# Editor directories
+# Development
+*.log
 .vscode/
 .idea/
 
+# Application specific
+m365_mail_backups/
+tenants.secret.yaml
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
 # Docker
-*.log
-.env
+docker-compose.override.yml

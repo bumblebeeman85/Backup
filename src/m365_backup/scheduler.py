@@ -3,7 +3,7 @@ from datetime import datetime
 import logging
 from typing import Callable
 
-logger = logging.getLogger('m365_backup.scheduler')
+logger = logging.getLogger("m365_backup.scheduler")
 
 
 def start_scheduler(job_func: Callable, cron_expressions: list = None):
@@ -14,12 +14,17 @@ def start_scheduler(job_func: Callable, cron_expressions: list = None):
     sched = BackgroundScheduler()
     # default: run 4x daily at 00:00,06:00,12:00,18:00
     if not cron_expressions:
-        cron_expressions = [{'hour': '0,6,12,18', 'minute': '0'}]
+        cron_expressions = [{"hour": "0,6,12,18", "minute": "0"}]
 
     for expr in cron_expressions:
-        sched.add_job(job_func, 'cron', **expr, id=f'm365_backup_{expr.get("hour")}_{expr.get("minute","0")}')
-        logger.info('Scheduled job with %s', expr)
+        sched.add_job(
+            job_func,
+            "cron",
+            **expr,
+            id=f'm365_backup_{expr.get("hour")}_{expr.get("minute","0")}',
+        )
+        logger.info("Scheduled job with %s", expr)
 
     sched.start()
-    logger.info('Scheduler started at %s', datetime.utcnow())
+    logger.info("Scheduler started at %s", datetime.utcnow())
     return sched

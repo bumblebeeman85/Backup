@@ -1,5 +1,5 @@
 [project]
-name = "M365 Iron Backup"
+name = "m365-iron-backup"
 version = "0.1.0"
 description = "Microsoft 365 mailbox backup tool for Iron Geeks"
 readme = "README.md"
