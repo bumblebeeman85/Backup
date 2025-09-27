@@ -19,6 +19,10 @@ ENV/
 # Application specific
 m365_mail_backups/
 tenants.secret.yaml
+tenants.yaml
+eml_files/
+celerybeat-schedule
+celerybeat.pid
 
 # Distribution / packaging
 dist/

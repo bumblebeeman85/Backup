@@ -1,0 +1,479 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>Email Search - M365 Iron Backup</title>
+    <link rel="stylesheet" href="/static/catppuccin.css">
+    <style>
+      .search-container {
+        max-width: 1000px;
+        margin: 2rem auto;
+      }
+      .search-header {
+        background: var(--ctp-surface0);
+        border: 1px solid var(--ctp-overlay0);
+        border-radius: 8px;
+        padding: 2rem;
+        margin-bottom: 2rem;
+      }
+      .search-form {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 1rem;
+        align-items: end;
+      }
+      .search-input {
+        position: relative;
+      }
+      .search-input input {
+        width: 100%;
+        padding: 1rem;
+        border: 2px solid var(--ctp-overlay1);
+        border-radius: 6px;
+        background: #ffffff;
+        color: #2c3e50;
+        font-size: 1.1rem;
+        box-sizing: border-box;
+      }
+      .search-input input:focus {
+        outline: none;
+        border-color: var(--ctp-blue);
+        box-shadow: 0 0 0 3px rgba(137, 180, 250, 0.2);
+      }
+      .search-button {
+        padding: 1rem 2rem;
+        background: var(--ctp-blue);
+        color: var(--ctp-base);
+        border: none;
+        border-radius: 6px;
+        font-size: 1rem;
+        font-weight: bold;
+        cursor: pointer;
+        transition: opacity 0.2s;
+      }
+      .search-button:hover {
+        opacity: 0.8;
+      }
+      .search-button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      .search-filters {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 1rem;
+        margin-top: 1rem;
+        padding-top: 1rem;
+        border-top: 1px solid var(--ctp-overlay0);
+      }
+      .filter-group {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+      }
+      .filter-group label {
+        font-weight: bold;
+        color: var(--ctp-text);
+        font-size: 0.9rem;
+      }
+      .filter-group input, .filter-group select {
+        padding: 0.5rem;
+        border: 1px solid var(--ctp-overlay1);
+        border-radius: 4px;
+        background: #ffffff;
+        color: #2c3e50;
+      }
+      .search-results {
+        background: var(--ctp-surface0);
+        border: 1px solid var(--ctp-overlay0);
+        border-radius: 8px;
+        padding: 2rem;
+      }
+      .results-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1rem;
+        padding-bottom: 1rem;
+        border-bottom: 1px solid var(--ctp-overlay0);
+      }
+      .results-count {
+        color: var(--ctp-subtext0);
+        font-size: 0.9rem;
+      }
+      .email-item {
+        background: var(--ctp-surface1);
+        border: 1px solid var(--ctp-overlay0);
+        border-radius: 6px;
+        padding: 1rem;
+        margin-bottom: 1rem;
+        transition: box-shadow 0.2s;
+      }
+      .email-item:hover {
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      }
+      .email-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: start;
+        margin-bottom: 0.5rem;
+      }
+      .email-subject {
+        font-size: 1.1rem;
+        font-weight: bold;
+        color: var(--ctp-text);
+        margin: 0;
+      }
+      .email-date {
+        color: var(--ctp-subtext0);
+        font-size: 0.9rem;
+        white-space: nowrap;
+      }
+      .email-from {
+        color: var(--ctp-blue);
+        font-size: 0.9rem;
+        margin-bottom: 0.5rem;
+      }
+      .email-preview {
+        color: var(--ctp-subtext1);
+        font-size: 0.9rem;
+        line-height: 1.4;
+      }
+      .email-meta {
+        display: flex;
+        gap: 1rem;
+        margin-top: 0.5rem;
+        font-size: 0.8rem;
+        color: var(--ctp-subtext0);
+      }
+      .pagination {
+        display: flex;
+        justify-content: center;
+        gap: 0.5rem;
+        margin-top: 2rem;
+      }
+      .page-button {
+        padding: 0.5rem 1rem;
+        background: var(--ctp-surface2);
+        color: var(--ctp-text);
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        text-decoration: none;
+      }
+      .page-button:hover, .page-button.active {
+        background: var(--ctp-blue);
+        color: var(--ctp-base);
+      }
+      .page-button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      .loading {
+        text-align: center;
+        padding: 2rem;
+        color: var(--ctp-subtext0);
+      }
+      .no-results {
+        text-align: center;
+        padding: 3rem;
+        color: var(--ctp-subtext0);
+      }
+      .search-stats {
+        background: var(--ctp-surface1);
+        border: 1px solid var(--ctp-overlay0);
+        border-radius: 6px;
+        padding: 1rem;
+        margin-bottom: 1rem;
+        font-size: 0.9rem;
+        color: var(--ctp-subtext0);
+      }
+      mark {
+        background: var(--ctp-yellow);
+        color: var(--ctp-base);
+        padding: 0.1rem 0.2rem;
+        border-radius: 2px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; padding-bottom: 1rem; border-bottom: 1px solid var(--ctp-overlay0);">
+        <h1>🔍 Email Search</h1>
+        <nav class="nav-links" style="display: flex; gap: 1rem;">
+          <a href="/" style="padding: 0.5rem 1rem; background: var(--ctp-surface1); color: var(--ctp-text); text-decoration: none; border-radius: 4px; border: 1px solid var(--ctp-overlay0);">🏠 Dashboard</a>
+          <a href="/tenants" style="padding: 0.5rem 1rem; background: var(--ctp-surface1); color: var(--ctp-text); text-decoration: none; border-radius: 4px; border: 1px solid var(--ctp-overlay0);">👥 Tenants</a>
+          <a href="/backup" style="padding: 0.5rem 1rem; background: var(--ctp-surface1); color: var(--ctp-text); text-decoration: none; border-radius: 4px; border: 1px solid var(--ctp-overlay0);">🚀 Backup</a>
+          <a href="/search" style="padding: 0.5rem 1rem; background: var(--ctp-blue); color: var(--ctp-base); text-decoration: none; border-radius: 4px; border: 1px solid var(--ctp-overlay0);">🔍 Search</a>
+        </nav>
+      </div>
+
+      <div class="search-container">
+        <!-- Search Form -->
+        <div class="search-header">
+          <form id="search-form" class="search-form">
+            <div class="search-input">
+              <input type="text" id="search-query" placeholder="Search emails... (subject, content, sender, etc.)" autofocus>
+            </div>
+            <button type="submit" class="search-button" id="search-btn">🔍 Search</button>
+          </form>
+          
+          <!-- Advanced Filters -->
+          <div class="search-filters">
+            <div class="filter-group">
+              <label for="filter-snapshot">Snapshot</label>
+              <select id="filter-snapshot">
+                <option value="">All Snapshots</option>
+                <!-- Options loaded dynamically -->
+              </select>
+            </div>
+            <div class="filter-group">
+              <label for="filter-sender">From</label>
+              <input type="text" id="filter-sender" placeholder="sender@example.com">
+            </div>
+            <div class="filter-group">
+              <label for="filter-limit">Results per page</label>
+              <select id="filter-limit">
+                <option value="10">10</option>
+                <option value="20" selected>20</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- Search Statistics -->
+        <div id="search-stats" class="search-stats" style="display: none;">
+        </div>
+
+        <!-- Search Results -->
+        <div id="search-results" class="search-results" style="display: none;">
+          <div class="results-header">
+            <h3 id="results-title">Search Results</h3>
+            <div class="results-count" id="results-count"></div>
+          </div>
+          <div id="results-list"></div>
+          <div id="pagination" class="pagination"></div>
+        </div>
+
+        <!-- Loading State -->
+        <div id="loading" class="loading" style="display: none;">
+          <h3>🔍 Searching...</h3>
+          <p>Please wait while we search through your emails.</p>
+        </div>
+
+        <!-- No Results State -->
+        <div id="no-results" class="no-results" style="display: none;">
+          <h3>No Results Found</h3>
+          <p>Try adjusting your search terms or filters.</p>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      let currentPage = 0;
+      let currentQuery = '';
+      let currentFilters = {};
+
+      // Load search statistics and snapshots on page load
+      document.addEventListener('DOMContentLoaded', function() {
+        loadSearchStats();
+        loadSnapshots();
+      });
+
+      async function loadSearchStats() {
+        try {
+          const response = await fetch('/api/search/stats');
+          const stats = await response.json();
+          
+          if (stats.success) {
+            const statsEl = document.getElementById('search-stats');
+            statsEl.innerHTML = `
+              <strong>📊 Search Index:</strong> 
+              ${stats.number_of_documents.toLocaleString()} emails indexed
+              ${stats.is_indexing ? ' (indexing in progress...)' : ''}
+            `;
+            statsEl.style.display = 'block';
+          }
+        } catch (error) {
+          console.error('Failed to load search stats:', error);
+        }
+      }
+
+      async function loadSnapshots() {
+        // In a real implementation, you'd fetch available snapshots
+        // For now, we'll leave it as is
+      }
+
+      // Search form handler
+      document.getElementById('search-form').addEventListener('submit', function(e) {
+        e.preventDefault();
+        performSearch(0);
+      });
+
+      async function performSearch(page = 0) {
+        const query = document.getElementById('search-query').value.trim();
+        const snapshotId = document.getElementById('filter-snapshot').value;
+        const fromAddress = document.getElementById('filter-sender').value.trim();
+        const limit = parseInt(document.getElementById('filter-limit').value);
+        
+        currentPage = page;
+        currentQuery = query;
+        currentFilters = { snapshotId, fromAddress };
+
+        // Show loading state
+        showLoading();
+
+        try {
+          const params = new URLSearchParams({
+            q: query,
+            limit: limit,
+            offset: page * limit
+          });
+          
+          if (snapshotId) params.append('snapshot_id', snapshotId);
+          if (fromAddress) params.append('from_address', fromAddress);
+
+          const response = await fetch(`/api/search?${params.toString()}`);
+          const results = await response.json();
+
+          if (results.success) {
+            displayResults(results);
+          } else {
+            showNoResults(`Error: ${results.error}`);
+          }
+
+        } catch (error) {
+          showNoResults(`Search failed: ${error.message}`);
+        }
+      }
+
+      function showLoading() {
+        document.getElementById('loading').style.display = 'block';
+        document.getElementById('search-results').style.display = 'none';
+        document.getElementById('no-results').style.display = 'none';
+      }
+
+      function showNoResults(message = null) {
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('search-results').style.display = 'none';
+        
+        const noResultsEl = document.getElementById('no-results');
+        if (message) {
+          noResultsEl.innerHTML = `<h3>Search Error</h3><p>${message}</p>`;
+        }
+        noResultsEl.style.display = 'block';
+      }
+
+      function displayResults(results) {
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('no-results').style.display = 'none';
+
+        if (results.hits.length === 0) {
+          showNoResults();
+          return;
+        }
+
+        // Update results header
+        document.getElementById('results-title').textContent = 
+          `Search Results${currentQuery ? ' for "' + currentQuery + '"' : ''}`;
+        document.getElementById('results-count').textContent = 
+          `${results.total_hits.toLocaleString()} total results (${results.processing_time_ms}ms)`;
+
+        // Display results
+        const resultsEl = document.getElementById('results-list');
+        resultsEl.innerHTML = results.hits.map(email => `
+          <div class="email-item">
+            <div class="email-header">
+              <h4 class="email-subject">${email._formatted?.subject || email.subject || 'No Subject'}</h4>
+              <div class="email-date">${formatDate(email.received_datetime)}</div>
+            </div>
+            <div class="email-from">
+              <strong>From:</strong> ${email._formatted?.from_address || email.from_address || 'Unknown'}
+            </div>
+            ${email.to_addresses ? `<div class="email-from"><strong>To:</strong> ${email.to_addresses}</div>` : ''}
+            ${email.body_preview ? `
+              <div class="email-preview">
+                ${email._formatted?.body_preview || email.body_preview}
+              </div>
+            ` : ''}
+            <div class="email-meta">
+              <span>Snapshot: ${email.snapshot_id}</span>
+              <span>Message ID: ${email.message_id.substring(0, 20)}...</span>
+              ${email.has_attachments ? '<span>📎 Has Attachments</span>' : ''}
+              <span>Priority: ${email.importance}</span>
+            </div>
+          </div>
+        `).join('');
+
+        // Update pagination
+        updatePagination(results);
+
+        document.getElementById('search-results').style.display = 'block';
+      }
+
+      function updatePagination(results) {
+        const limit = parseInt(document.getElementById('filter-limit').value);
+        const totalPages = Math.ceil(results.total_hits / limit);
+        const paginationEl = document.getElementById('pagination');
+
+        if (totalPages <= 1) {
+          paginationEl.innerHTML = '';
+          return;
+        }
+
+        let paginationHtml = '';
+
+        // Previous button
+        if (currentPage > 0) {
+          paginationHtml += `<button class="page-button" onclick="performSearch(${currentPage - 1})">← Previous</button>`;
+        }
+
+        // Page numbers (show max 7 pages around current)
+        const start = Math.max(0, currentPage - 3);
+        const end = Math.min(totalPages, start + 7);
+
+        for (let i = start; i < end; i++) {
+          paginationHtml += `
+            <button class="page-button ${i === currentPage ? 'active' : ''}" onclick="performSearch(${i})">
+              ${i + 1}
+            </button>
+          `;
+        }
+
+        // Next button
+        if (currentPage < totalPages - 1) {
+          paginationHtml += `<button class="page-button" onclick="performSearch(${currentPage + 1})">Next →</button>`;
+        }
+
+        paginationEl.innerHTML = paginationHtml;
+      }
+
+      function formatDate(dateString) {
+        if (!dateString) return 'Unknown';
+        try {
+          return new Date(dateString).toLocaleString();
+        } catch {
+          return dateString;
+        }
+      }
+
+      // Auto-search on filter changes
+      document.getElementById('filter-snapshot').addEventListener('change', function() {
+        if (currentQuery || Object.values(currentFilters).some(v => v)) {
+          performSearch(0);
+        }
+      });
+
+      document.getElementById('filter-sender').addEventListener('input', function() {
+        clearTimeout(this.searchTimeout);
+        this.searchTimeout = setTimeout(() => {
+          if (currentQuery || this.value.trim()) {
+            performSearch(0);
+          }
+        }, 500);
+      });
+    </script>
+  </body>
+</html>

@@ -10,3 +10,13 @@ asyncpg
 alembic
 apscheduler
 psycopg[binary]
+psycopg2-binary
+python-multipart
+
+# Job Queue & Search
+celery>=5.3.0
+redis>=5.0.0
+meilisearch>=0.31.0
+
+# Progress tracking and WebSockets  
+sse-starlette>=1.8.0

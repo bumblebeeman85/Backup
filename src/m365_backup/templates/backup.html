@@ -1,0 +1,458 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>Manual Backup - M365 Iron Backup</title>
+    <link rel="stylesheet" href="/static/catppuccin.css">
+    <style>
+      .backup-container {
+        max-width: 800px;
+        margin: 2rem auto;
+      }
+      .backup-section {
+        background: var(--ctp-surface0);
+        border: 1px solid var(--ctp-overlay0);
+        border-radius: 8px;
+        padding: 2rem;
+        margin: 2rem 0;
+      }
+      .backup-options {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1rem;
+        margin-bottom: 2rem;
+      }
+      .option-group {
+        background: var(--ctp-surface1);
+        padding: 1rem;
+        border-radius: 6px;
+        border: 1px solid var(--ctp-overlay0);
+      }
+      .option-group label {
+        display: block;
+        margin-bottom: 0.5rem;
+        font-weight: bold;
+        color: var(--ctp-text);
+      }
+      .option-group input, .option-group select {
+        width: 100%;
+        padding: 0.5rem;
+        border: 1px solid var(--ctp-overlay1);
+        border-radius: 4px;
+        background: #ffffff;
+        color: #2c3e50;
+        font-size: 1rem;
+      }
+      .option-group input:focus, .option-group select:focus {
+        outline: none;
+        border-color: var(--ctp-blue);
+        box-shadow: 0 0 0 2px rgba(137, 180, 250, 0.2);
+      }
+      .tenant-list {
+        display: grid;
+        gap: 1rem;
+      }
+      .tenant-item {
+        background: var(--ctp-surface1);
+        border: 1px solid var(--ctp-overlay0);
+        border-radius: 6px;
+        padding: 1rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      .tenant-info h4 {
+        margin: 0 0 0.5rem 0;
+        color: var(--ctp-text);
+      }
+      .tenant-info small {
+        color: var(--ctp-subtext0);
+      }
+      .backup-btn {
+        padding: 0.75rem 1.5rem;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 1rem;
+        font-weight: bold;
+        text-decoration: none;
+        display: inline-block;
+        text-align: center;
+        transition: opacity 0.2s;
+      }
+      .backup-btn:hover { opacity: 0.8; }
+      .backup-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+      .btn-primary { background: var(--ctp-blue); color: var(--ctp-base); }
+      .btn-success { background: var(--ctp-green); color: var(--ctp-base); }
+      .btn-secondary { background: var(--ctp-surface2); color: var(--ctp-text); }
+      .status-message {
+        margin: 1rem 0;
+        padding: 1rem;
+        border-radius: 6px;
+        display: none;
+      }
+      .status-success { background: var(--ctp-green); color: var(--ctp-base); }
+      .status-error { background: var(--ctp-red); color: var(--ctp-base); }
+      .status-info { background: var(--ctp-blue); color: var(--ctp-base); }
+      .progress-bar {
+        width: 100%;
+        height: 20px;
+        background: var(--ctp-surface2);
+        border-radius: 10px;
+        overflow: hidden;
+        margin: 1rem 0;
+        display: none;
+      }
+      .progress-fill {
+        height: 100%;
+        background: var(--ctp-green);
+        width: 0%;
+        transition: width 0.3s ease;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--ctp-base);
+        font-size: 0.8rem;
+        font-weight: bold;
+      }
+      .recent-snapshots {
+        max-height: 300px;
+        overflow-y: auto;
+      }
+      .snapshot-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0.5rem;
+        border-bottom: 1px solid var(--ctp-overlay0);
+      }
+      .snapshot-item:last-child {
+        border-bottom: none;
+      }
+      .checkbox-wrapper {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-top: 0.5rem;
+      }
+      .checkbox-wrapper input[type="checkbox"] {
+        width: auto;
+        margin: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; padding-bottom: 1rem; border-bottom: 1px solid var(--ctp-overlay0);">
+        <h1>🚀 Manual Backup</h1>
+        <nav class="nav-links" style="display: flex; gap: 1rem;">
+          <a href="/" style="padding: 0.5rem 1rem; background: var(--ctp-surface1); color: var(--ctp-text); text-decoration: none; border-radius: 4px; border: 1px solid var(--ctp-overlay0);">🏠 Dashboard</a>
+          <a href="/tenants" style="padding: 0.5rem 1rem; background: var(--ctp-surface1); color: var(--ctp-text); text-decoration: none; border-radius: 4px; border: 1px solid var(--ctp-overlay0);">👥 Tenants</a>
+          <a href="/backup" style="padding: 0.5rem 1rem; background: var(--ctp-blue); color: var(--ctp-base); text-decoration: none; border-radius: 4px; border: 1px solid var(--ctp-overlay0);">🚀 Backup</a>
+          <a href="/search" style="padding: 0.5rem 1rem; background: var(--ctp-surface1); color: var(--ctp-text); text-decoration: none; border-radius: 4px; border: 1px solid var(--ctp-overlay0);">🔍 Search</a>
+        </nav>
+      </div>
+
+      <div class="backup-container">
+        
+        <!-- Backup All Tenants Section -->
+        <div class="backup-section">
+          <h2>🌐 Backup All Tenants</h2>
+          <p>Backup all configured tenants with custom settings.</p>
+          
+          <div class="backup-options">
+            <div class="option-group">
+              <label for="all-mails-per-user">Mails per User</label>
+              <input type="number" id="all-mails-per-user" value="200" min="1" max="10000">
+              <small style="color: var(--ctp-subtext0); margin-top: 0.25rem; display: block;">
+                Maximum number of emails per mailbox
+              </small>
+            </div>
+            
+            <div class="option-group">
+              <label for="all-label">Snapshot Label</label>
+              <input type="text" id="all-label" placeholder="e.g., weekly-backup-2025-09">
+              <small style="color: var(--ctp-subtext0); margin-top: 0.25rem; display: block;">
+                Optional label for this backup
+              </small>
+            </div>
+          </div>
+          
+          <div class="checkbox-wrapper">
+            <input type="checkbox" id="all-attachments" checked>
+            <label for="all-attachments">Download Attachments</label>
+          </div>
+          
+          <div style="margin-top: 2rem;">
+            <button class="backup-btn btn-success" onclick="startFullBackup()">
+              🚀 Start Full Backup ({{ tenants|length }} tenants)
+            </button>
+          </div>
+        </div>
+
+        <!-- Individual Tenant Backup Section -->
+        {% if tenants %}
+        <div class="backup-section">
+          <h2>🏢 Backup Individual Tenants</h2>
+          <p>Backup specific tenants individually with custom settings.</p>
+          
+          <div class="tenant-list">
+            {% for tenant in tenants %}
+            <div class="tenant-item">
+              <div class="tenant-info">
+                <h4>{{ tenant.name }}</h4>
+                <small>{{ tenant.tenant_id }}</small>
+              </div>
+              <div>
+                <button class="backup-btn btn-primary tenant-backup-btn" 
+                        data-tenant-id="{{ tenant.id }}" 
+                        data-tenant-name="{{ tenant.name }}">
+                  ⚙️ Configure & Backup
+                </button>
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
+
+        <!-- Status Messages -->
+        <div id="status-message" class="status-message"></div>
+        <div id="progress-bar" class="progress-bar">
+          <div id="progress-fill" class="progress-fill">0%</div>
+        </div>
+
+        <!-- Recent Snapshots -->
+        {% if recent_snapshots %}
+        <div class="backup-section">
+          <h2>📋 Recent Snapshots</h2>
+          <div class="recent-snapshots">
+            {% for snapshot in recent_snapshots %}
+            <div class="snapshot-item">
+              <div>
+                <strong><a href="/snapshots/{{ snapshot.id }}" style="color: var(--ctp-blue);">Snapshot {{ snapshot.id }}</a></strong>
+                <br>
+                <small style="color: var(--ctp-subtext0);">
+                  {{ snapshot.created_at.strftime('%Y-%m-%d %H:%M:%S') if snapshot.created_at else 'Unknown' }}
+                  {% if snapshot.label %} | {{ snapshot.label }}{% endif %}
+                </small>
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Tenant Configuration Modal -->
+    <div id="tenant-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 1000;">
+      <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: var(--ctp-base); padding: 2rem; border-radius: 8px; min-width: 400px;">
+        <h3 id="modal-title">Configure Backup</h3>
+        <div style="margin: 1rem 0;">
+          <label for="tenant-mails">Mails per User:</label>
+          <input type="number" id="tenant-mails" value="200" min="1" max="10000" style="width: 100%; margin-top: 0.5rem; padding: 0.5rem; border: 1px solid var(--ctp-overlay1); border-radius: 4px; background: #ffffff; color: #2c3e50;">
+        </div>
+        <div style="margin: 1rem 0;">
+          <label for="tenant-label">Snapshot Label:</label>
+          <input type="text" id="tenant-label" placeholder="e.g., urgent-backup" style="width: 100%; margin-top: 0.5rem; padding: 0.5rem; border: 1px solid var(--ctp-overlay1); border-radius: 4px; background: #ffffff; color: #2c3e50;">
+        </div>
+        <div style="margin: 1rem 0;">
+          <input type="checkbox" id="tenant-attachments" checked>
+          <label for="tenant-attachments">Download Attachments</label>
+        </div>
+        <div style="margin-top: 2rem;">
+          <button class="backup-btn btn-success" id="start-tenant-backup">🚀 Start Backup</button>
+          <button class="backup-btn btn-secondary" onclick="closeTenantModal()">❌ Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      let currentTenantId = null;
+
+      function showStatus(message, type = 'info') {
+        const statusEl = document.getElementById('status-message');
+        statusEl.className = `status-message status-${type}`;
+        statusEl.textContent = message;
+        statusEl.style.display = 'block';
+      }
+
+      function hideStatus() {
+        document.getElementById('status-message').style.display = 'none';
+      }
+
+      function showProgress(show = true) {
+        const progressBar = document.getElementById('progress-bar');
+        progressBar.style.display = show ? 'block' : 'none';
+        if (!show) {
+          document.getElementById('progress-fill').style.width = '0%';
+          document.getElementById('progress-fill').textContent = '0%';
+        }
+      }
+
+      function updateProgress(percent, text = null) {
+        const fillEl = document.getElementById('progress-fill');
+        fillEl.style.width = percent + '%';
+        fillEl.textContent = text || percent + '%';
+      }
+
+      async function startFullBackup() {
+        const mailsPerUser = document.getElementById('all-mails-per-user').value;
+        const label = document.getElementById('all-label').value;
+        const downloadAttachments = document.getElementById('all-attachments').checked;
+
+        hideStatus();
+        showProgress();
+        updateProgress(10, 'Starting async backup...');
+        
+        try {
+          const params = new URLSearchParams({
+            mails_per_user: mailsPerUser,
+            download_attachments: downloadAttachments
+          });
+          if (label) params.append('label', label);
+
+          // Start async backup
+          const response = await fetch(`/api/backup/async/trigger?${params.toString()}`, {
+            method: 'POST'
+          });
+          
+          const result = await response.json();
+          
+          if (result.success) {
+            updateProgress(20, 'Backup queued, monitoring progress...');
+            showStatus(`🚀 Backup started! Task ID: ${result.task_id}`, 'info');
+            
+            // Monitor progress via Server-Sent Events
+            monitorBackupProgress(result.task_id);
+          } else {
+            throw new Error(result.error || 'Unknown error');
+          }
+        } catch (error) {
+          updateProgress(0);
+          showStatus(`❌ Failed to start backup: ${error.message}`, 'error');
+          setTimeout(() => showProgress(false), 3000);
+        }
+      }
+
+      async function monitorBackupProgress(taskId) {
+        try {
+          const eventSource = new EventSource(`/api/backup/status/${taskId}/stream`);
+          
+          eventSource.onmessage = function(event) {
+            const status = JSON.parse(event.data);
+            
+            if (status.error) {
+              updateProgress(0);
+              showStatus(`❌ Monitoring error: ${status.error}`, 'error');
+              eventSource.close();
+              return;
+            }
+            
+            updateProgress(status.progress, status.message);
+            
+            if (status.state === 'SUCCESS') {
+              updateProgress(100, 'Completed!');
+              showStatus(
+                `✅ Backup completed! Snapshot ID: ${status.result.snapshot_id}, ` +
+                `Messages: ${status.result.messages_inserted}/${status.result.messages_collected}`, 
+                'success'
+              );
+              eventSource.close();
+              setTimeout(() => {
+                window.location.href = `/snapshots/${status.result.snapshot_id}`;
+              }, 3000);
+            } else if (status.state === 'FAILURE') {
+              updateProgress(0);
+              showStatus(`❌ Backup failed: ${status.message}`, 'error');
+              eventSource.close();
+              setTimeout(() => showProgress(false), 3000);
+            }
+          };
+          
+          eventSource.onerror = function() {
+            showStatus('❌ Connection lost, backup may still be running...', 'error');
+            eventSource.close();
+            setTimeout(() => showProgress(false), 5000);
+          };
+          
+        } catch (error) {
+          updateProgress(0);
+          showStatus(`❌ Failed to monitor progress: ${error.message}`, 'error');
+          setTimeout(() => showProgress(false), 3000);
+        }
+      }
+
+      function showTenantOptions(tenantId, tenantName) {
+        currentTenantId = tenantId;
+        document.getElementById('modal-title').textContent = `Configure Backup for ${tenantName}`;
+        document.getElementById('tenant-modal').style.display = 'block';
+      }
+
+      function closeTenantModal() {
+        document.getElementById('tenant-modal').style.display = 'none';
+        currentTenantId = null;
+      }
+
+      document.getElementById('start-tenant-backup').onclick = async function() {
+        if (!currentTenantId) return;
+        
+        const mailsPerUser = document.getElementById('tenant-mails').value;
+        const label = document.getElementById('tenant-label').value;
+        const downloadAttachments = document.getElementById('tenant-attachments').checked;
+
+        closeTenantModal();
+        hideStatus();
+        showProgress();
+        updateProgress(20, 'Starting tenant backup...');
+        
+        try {
+          const params = new URLSearchParams({
+            mails_per_user: mailsPerUser,
+            download_attachments: downloadAttachments
+          });
+          if (label) params.append('label', label);
+
+          const response = await fetch(`/api/backup/async/tenant/${currentTenantId}?${params.toString()}`, {
+            method: 'POST'
+          });
+          
+          const result = await response.json();
+          
+          if (result.success) {
+            updateProgress(30, 'Tenant backup queued, monitoring...');
+            showStatus(`🚀 Tenant backup started! Task ID: ${result.task_id}`, 'info');
+            
+            // Monitor progress for single tenant
+            monitorBackupProgress(result.task_id);
+          } else {
+            throw new Error(result.error || 'Unknown error');
+          }
+        } catch (error) {
+          updateProgress(0);
+          showStatus(`❌ Failed to start tenant backup: ${error.message}`, 'error');
+          setTimeout(() => showProgress(false), 3000);
+        }
+      };
+
+      // Close modal when clicking outside
+      document.getElementById('tenant-modal').onclick = function(e) {
+        if (e.target === this) {
+          closeTenantModal();
+        }
+      };
+
+      // Event delegation for tenant backup buttons
+      document.addEventListener('DOMContentLoaded', function() {
+        document.querySelectorAll('.tenant-backup-btn').forEach(btn => {
+          btn.addEventListener('click', function() {
+            const tenantId = parseInt(this.dataset.tenantId);
+            const tenantName = this.dataset.tenantName;
+            showTenantOptions(tenantId, tenantName);
+          });
+        });
+      });
+    </script>
+  </body>
+</html>

@@ -13,13 +13,20 @@ import base64
 import logging
 import argparse
 from typing import Dict, Any, List, Optional
+from datetime import datetime
+import hashlib
 
 import requests
 import msal
 from dotenv import load_dotenv
 from email import policy
 from email.parser import BytesParser
-from email.utils import getaddresses
+from email.utils import getaddresses, formatdate, make_msgid
+from email.message import EmailMessage
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from email.mime.base import MIMEBase
+from email import encoders
 
 # local modules
 from . import db
@@ -38,6 +45,10 @@ logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
 logger = logging.getLogger("m365_backup")
 
 os.makedirs(BACKUP_DIR, exist_ok=True)
+
+# EML storage directory
+EML_DIR = os.path.join(BACKUP_DIR, "eml_files")
+os.makedirs(EML_DIR, exist_ok=True)
 
 # --- Utilities ---
 
@@ -82,6 +93,86 @@ def has_mailbox(user_id: str, token: str) -> bool:
     return r.status_code == 200
 
 
+def get_all_mailboxes(token: str) -> List[Dict[str, Any]]:
+    """Get all mailboxes including user mailboxes and shared mailboxes."""
+    headers = {"Authorization": f"Bearer {token}"}
+    mailboxes = []
+    
+    # 1. Get all users with mailboxes
+    logger.info("Retrieving all users...")
+    url = "https://graph.microsoft.com/v1.0/users?$select=id,displayName,userPrincipalName,accountEnabled,userType&$filter=accountEnabled eq true"
+    while url:
+        r = requests.get(url, headers=headers)
+        if r.status_code != 200:
+            logger.error("Failed to list users: %s", r.text)
+            break
+        data = r.json()
+        for user in data.get("value", []):
+            # Check if user has a mailbox
+            if has_mailbox(user["id"], token):
+                mailboxes.append({
+                    **user,
+                    "mailboxType": "UserMailbox"
+                })
+                logger.debug("Found user mailbox: %s (%s)", user.get("displayName"), user.get("userPrincipalName"))
+            else:
+                logger.debug("Skipping user without mailbox: %s (%s)", user.get("displayName"), user.get("userPrincipalName"))
+        url = data.get("@odata.nextLink", None)
+    
+    # 2. Get shared mailboxes via groups with mail enabled
+    logger.info("Retrieving shared mailboxes...")
+    try:
+        url = "https://graph.microsoft.com/v1.0/groups?$select=id,displayName,mail,groupTypes&$filter=mailEnabled eq true"
+        while url:
+            r = requests.get(url, headers=headers)
+            if r.status_code != 200:
+                logger.warning("Failed to list mail-enabled groups: %s", r.text)
+                break
+            data = r.json()
+            for group in data.get("value", []):
+                # Check if it's a shared mailbox (distribution groups, shared mailboxes, etc.)
+                if group.get("mail"):
+                    # Try to access the mailbox
+                    if has_mailbox(group["id"], token):
+                        mailboxes.append({
+                            "id": group["id"],
+                            "displayName": group.get("displayName"),
+                            "userPrincipalName": group.get("mail"),
+                            "mailboxType": "SharedMailbox"
+                        })
+                        logger.debug("Found shared mailbox: %s (%s)", group.get("displayName"), group.get("mail"))
+            url = data.get("@odata.nextLink", None)
+    except Exception as e:
+        logger.warning("Error retrieving shared mailboxes: %s", e)
+    
+    # 3. Try to get mailboxes directly (requires Exchange permissions)
+    try:
+        logger.info("Attempting to retrieve mailboxes via Exchange API...")
+        url = "https://graph.microsoft.com/v1.0/users?$select=id,displayName,userPrincipalName&$filter=assignedLicenses/$count ne 0&$count=true"
+        headers_with_count = {**headers, "ConsistencyLevel": "eventual"}
+        r = requests.get(url, headers=headers_with_count)
+        if r.status_code == 200:
+            data = r.json()
+            for user in data.get("value", []):
+                # Check if we already have this mailbox
+                if not any(mb["id"] == user["id"] for mb in mailboxes):
+                    if has_mailbox(user["id"], token):
+                        mailboxes.append({
+                            **user,
+                            "mailboxType": "LicensedUserMailbox"
+                        })
+                        logger.debug("Found licensed user mailbox: %s (%s)", user.get("displayName"), user.get("userPrincipalName"))
+    except Exception as e:
+        logger.debug("Could not retrieve licensed users: %s", e)
+    
+    logger.info("Found %d total mailboxes (%d user, %d shared)", 
+               len(mailboxes),
+               len([mb for mb in mailboxes if mb.get("mailboxType") == "UserMailbox"]),
+               len([mb for mb in mailboxes if mb.get("mailboxType") == "SharedMailbox"]))
+    
+    return mailboxes
+
+
 def download_message_attachments(
     user_id: str, msg_id: str, token: str, attach_target_dir: str
 ) -> None:
@@ -110,6 +201,140 @@ def download_message_attachments(
             with open(meta_path, "w", encoding="utf-8") as f:
                 json.dump(att, f, indent=2, ensure_ascii=False)
             logger.debug("Saved attachment metadata %s", meta_path)
+
+
+def create_eml_from_message(msg: Dict[str, Any], snapshot_id: int) -> str:
+    """Create EML file from Microsoft Graph message and return file path."""
+    
+    # Generate unique filename
+    msg_id = msg.get('id', 'unknown')
+    msg_hash = hashlib.md5(msg_id.encode()).hexdigest()[:8]
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    eml_filename = f"snap_{snapshot_id}_{timestamp}_{msg_hash}.eml"
+    eml_path = os.path.join(EML_DIR, eml_filename)
+    
+    # Create email message
+    email_msg = MIMEMultipart('mixed')
+    
+    # Set headers
+    email_msg['Subject'] = msg.get('subject', 'No Subject')
+    email_msg['From'] = msg.get('sender', {}).get('emailAddress', {}).get('address', 'unknown@unknown.com')
+    
+    # To recipients
+    to_recipients = []
+    for recipient in msg.get('toRecipients', []):
+        addr = recipient.get('emailAddress', {}).get('address')
+        if addr:
+            to_recipients.append(addr)
+    if to_recipients:
+        email_msg['To'] = ', '.join(to_recipients)
+    
+    # CC recipients  
+    cc_recipients = []
+    for recipient in msg.get('ccRecipients', []):
+        addr = recipient.get('emailAddress', {}).get('address')
+        if addr:
+            cc_recipients.append(addr)
+    if cc_recipients:
+        email_msg['CC'] = ', '.join(cc_recipients)
+    
+    # Date
+    received_datetime = msg.get('receivedDateTime')
+    if received_datetime:
+        try:
+            dt = datetime.fromisoformat(received_datetime.replace('Z', '+00:00'))
+            email_msg['Date'] = formatdate(dt.timestamp())
+        except:
+            email_msg['Date'] = formatdate()
+    else:
+        email_msg['Date'] = formatdate()
+    
+    # Message ID
+    email_msg['Message-ID'] = make_msgid()
+    
+    # Add custom headers for backup tracking
+    email_msg['X-M365-Backup-ID'] = msg_id
+    email_msg['X-M365-Snapshot-ID'] = str(snapshot_id)
+    email_msg['X-M365-Backup-Date'] = datetime.now().isoformat()
+    
+    # Body content
+    body = msg.get('body', {})
+    content_type = body.get('contentType', 'Text').lower()
+    content = body.get('content', '')
+    
+    if content_type == 'html':
+        body_part = MIMEText(content, 'html', 'utf-8')
+    else:
+        body_part = MIMEText(content, 'plain', 'utf-8')
+    
+    email_msg.attach(body_part)
+    
+    # Handle attachments
+    for attachment in msg.get('attachments', []):
+        if attachment.get('@odata.type') == '#microsoft.graph.fileAttachment':
+            att_name = attachment.get('name', 'attachment')
+            att_content = attachment.get('contentBytes', '')
+            att_type = attachment.get('contentType', 'application/octet-stream')
+            
+            try:
+                # Decode base64 content
+                att_data = base64.b64decode(att_content)
+                
+                # Create attachment part
+                att_part = MIMEBase(*att_type.split('/', 1))
+                att_part.set_payload(att_data)
+                encoders.encode_base64(att_part)
+                att_part.add_header('Content-Disposition', f'attachment; filename="{att_name}"')
+                
+                email_msg.attach(att_part)
+            except Exception as e:
+                logger.warning(f"Failed to add attachment {att_name}: {e}")
+    
+    # Write EML file
+    try:
+        with open(eml_path, 'wb') as f:
+            f.write(email_msg.as_bytes())
+        logger.debug(f"Created EML file: {eml_path}")
+        return eml_path
+    except Exception as e:
+        logger.error(f"Failed to create EML file {eml_path}: {e}")
+        return ""
+
+
+def extract_message_text_content(msg: Dict[str, Any]) -> Dict[str, str]:
+    """Extract plain text content from message for display."""
+    
+    body = msg.get('body', {})
+    content_type = body.get('contentType', 'Text').lower()
+    content = body.get('content', '')
+    
+    # Convert HTML to plain text if needed
+    if content_type == 'html' and content:
+        try:
+            from html import unescape
+            import re
+            # Simple HTML to text conversion
+            # Remove HTML tags
+            text = re.sub(r'<[^>]+>', '', content)
+            # Decode HTML entities
+            text = unescape(text)
+            # Clean up whitespace
+            text = re.sub(r'\s+', ' ', text).strip()
+        except:
+            text = content
+    else:
+        text = content
+    
+    return {
+        'subject': msg.get('subject', 'No Subject'),
+        'body_text': text,
+        'body_html': content if content_type == 'html' else '',
+        'from_address': msg.get('sender', {}).get('emailAddress', {}).get('address', 'Unknown'),
+        'received_datetime': msg.get('receivedDateTime', ''),
+        'has_attachments': len(msg.get('attachments', [])) > 0,
+        'attachment_count': len(msg.get('attachments', [])),
+        'importance': msg.get('importance', 'normal')
+    }
 
 
 def backup_mailbox(
@@ -147,10 +372,27 @@ def backup_mailbox(
         data = r.json()
         for msg in data.get("value", []):
             msg_id = msg["id"]
+            
+            # Save JSON metadata
             filename = os.path.join(user_dir, f"{msg_id}.json")
             with open(filename, "w", encoding="utf-8") as f:
                 json.dump(msg, f, indent=2, ensure_ascii=False)
-            # Save raw MIME (.eml)
+            
+            # Extract text content for database storage
+            text_content = extract_message_text_content(msg)
+            
+            # Add user info and EML path placeholder
+            enhanced_msg = {
+                **msg,
+                'user_principal_name': user.get('userPrincipalName'),
+                'user_display_name': user.get('displayName'),
+                'mailbox_type': user.get('type', 'user'),
+                'text_content': text_content,
+                'eml_file_path': ''  # Will be set after EML creation
+            }
+            
+            # Save raw MIME (.eml) - try original first, then create from JSON
+            eml_path = ""
             try:
                 mime_url = f"https://graph.microsoft.com/v1.0/users/{user['id']}/messages/{msg_id}/$value"
                 rm = requests.get(mime_url, headers=headers)
@@ -158,23 +400,33 @@ def backup_mailbox(
                     eml_path = os.path.join(user_dir, f"{msg_id}.eml")
                     with open(eml_path, "wb") as ef:
                         ef.write(rm.content)
+                    # Also save to central EML directory for web access
+                    msg_hash = hashlib.md5(msg_id.encode()).hexdigest()[:8]
+                    central_eml_name = f"{msg_hash}_{msg_id}.eml"
+                    central_eml_path = os.path.join(EML_DIR, central_eml_name)
+                    with open(central_eml_path, "wb") as ef:
+                        ef.write(rm.content)
+                    enhanced_msg['eml_file_path'] = central_eml_path
                     logger.debug("Saved raw EML %s", eml_path)
                 else:
-                    logger.debug(
-                        "Could not fetch raw MIME for %s: %s", msg_id, rm.status_code
-                    )
-            except Exception:
-                logger.exception("Error fetching raw MIME for %s", msg_id)
+                    logger.debug("Could not fetch raw MIME for %s: %s", msg_id, rm.status_code)
+                    # Fall back to creating EML from JSON data
+                    central_eml_path = create_eml_from_message(msg, 0)  # Snapshot ID will be updated later
+                    if central_eml_path:
+                        enhanced_msg['eml_file_path'] = central_eml_path
+            except Exception as e:
+                logger.exception("Error handling EML for %s: %s", msg_id, e)
+                # Fall back to creating EML from JSON data
+                try:
+                    central_eml_path = create_eml_from_message(msg, 0)
+                    if central_eml_path:
+                        enhanced_msg['eml_file_path'] = central_eml_path
+                except Exception:
+                    logger.exception("Failed to create fallback EML for %s", msg_id)
+            
             downloaded += 1
             try:
-                collected.append(
-                    {
-                        "tenant": os.path.basename(tenant_dir),
-                        "user_principal": user.get("userPrincipalName"),
-                        "message_id": msg_id,
-                        "message_json": msg,
-                    }
-                )
+                collected.append(enhanced_msg)
             except Exception:
                 logger.exception("Failed to collect message for DB")
             if download_attachments:
@@ -225,38 +477,29 @@ def backup_tenant(
     tenant_dir = os.path.join(BACKUP_DIR, tenant.get("name") or tenant_id)
     os.makedirs(tenant_dir, exist_ok=True)
 
-    # list users
-    url = "https://graph.microsoft.com/v1.0/users?$select=id,displayName,userPrincipalName"
-    headers = {"Authorization": f"Bearer {token}"}
-    users: List[Dict[str, Any]] = []
-    while url:
-        r = requests.get(url, headers=headers)
-        if r.status_code != 200:
-            logger.error(
-                "Failed to list users for tenant %s: %s", tenant.get("name"), r.text
-            )
-            return []
-        data = r.json()
-        users.extend(data.get("value", []))
-        url = data.get("@odata.nextLink", None)
-    logger.info("Found %d users for tenant %s", len(users), tenant.get("name"))
+    # Get all mailboxes (users + shared)
+    try:
+        mailboxes = get_all_mailboxes(token)
+        logger.info("Found %d mailboxes for tenant %s", len(mailboxes), tenant.get("name"))
+    except Exception as e:
+        logger.exception("Failed to get mailboxes for tenant %s: %s", tenant.get("name"), e)
+        return []
 
     collected_all: List[Dict[str, Any]] = []
-    for user in users:
-        if has_mailbox(user["id"], token):
-            try:
-                msgs = backup_mailbox(
-                    user, token, mails_per_user, download_attachments_flag, tenant_dir
-                )
-                if msgs:
-                    collected_all.extend(msgs)
-            except Exception:
-                logger.exception(
-                    "Error backing up user %s", user.get("userPrincipalName")
-                )
-        else:
-            logger.debug(
-                "Skipping user without mailbox: %s", user.get("userPrincipalName")
+    for mailbox in mailboxes:
+        try:
+            logger.info("Backing up %s mailbox: %s (%s)", 
+                       mailbox.get("mailboxType", "Unknown"),
+                       mailbox.get("displayName"), 
+                       mailbox.get("userPrincipalName"))
+            msgs = backup_mailbox(
+                mailbox, token, mails_per_user, download_attachments_flag, tenant_dir
+            )
+            if msgs:
+                collected_all.extend(msgs)
+        except Exception:
+            logger.exception(
+                "Error backing up mailbox %s", mailbox.get("userPrincipalName")
             )
 
     return collected_all

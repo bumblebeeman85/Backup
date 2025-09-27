@@ -1,0 +1,240 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>Tenant Management - M365 Iron Backup</title>
+    <link rel="stylesheet" href="/static/catppuccin.css">
+    <style>
+      .tenant-card {
+        background: var(--ctp-surface0);
+        border: 1px solid var(--ctp-overlay0);
+        border-radius: 8px;
+        padding: 1rem;
+        margin: 1rem 0;
+      }
+      .tenant-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 0.5rem;
+      }
+      .tenant-actions {
+        display: flex;
+        gap: 0.5rem;
+      }
+      .btn {
+        padding: 0.5rem 1rem;
+        border: none;
+        border-radius: 4px;
+        text-decoration: none;
+        color: var(--ctp-text);
+        cursor: pointer;
+        font-size: 0.9rem;
+      }
+      .btn-primary { background: var(--ctp-blue); }
+      .btn-success { background: var(--ctp-green); }
+      .btn-danger { background: var(--ctp-red); }
+      .btn:hover { opacity: 0.8; }
+      .user-list {
+        margin-top: 0.5rem;
+        padding-left: 1rem;
+      }
+      .user-item {
+        color: var(--ctp-subtext0);
+        font-family: monospace;
+        font-size: 0.9rem;
+      }
+      .no-tenants {
+        text-align: center;
+        padding: 2rem;
+        color: var(--ctp-subtext0);
+      }
+      #backup-trigger {
+        position: fixed;
+        bottom: 2rem;
+        right: 2rem;
+        z-index: 1000;
+      }
+      .backup-status {
+        margin: 1rem 0;
+        padding: 0.5rem;
+        border-radius: 4px;
+        display: none;
+      }
+      .backup-success { background: var(--ctp-green); color: var(--ctp-base); }
+      .backup-error { background: var(--ctp-red); color: var(--ctp-base); }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; padding-bottom: 1rem; border-bottom: 1px solid var(--ctp-overlay0);">
+        <h1>👥 Tenant Management</h1>
+        <nav class="nav-links" style="display: flex; gap: 1rem;">
+          <a href="/" style="padding: 0.5rem 1rem; background: var(--ctp-surface1); color: var(--ctp-text); text-decoration: none; border-radius: 4px; border: 1px solid var(--ctp-overlay0);">🏠 Dashboard</a>
+          <a href="/tenants" style="padding: 0.5rem 1rem; background: var(--ctp-blue); color: var(--ctp-base); text-decoration: none; border-radius: 4px; border: 1px solid var(--ctp-overlay0);">👥 Tenants</a>
+          <a href="/backup" style="padding: 0.5rem 1rem; background: var(--ctp-surface1); color: var(--ctp-text); text-decoration: none; border-radius: 4px; border: 1px solid var(--ctp-overlay0);">🚀 Backup</a>
+          <a href="/search" style="padding: 0.5rem 1rem; background: var(--ctp-surface1); color: var(--ctp-text); text-decoration: none; border-radius: 4px; border: 1px solid var(--ctp-overlay0);">🔍 Search</a>
+        </nav>
+      </div>
+
+      <main>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
+          <h2>Configured Tenants</h2>
+          <a href="/tenants/new" class="btn btn-success">➕ Add New Tenant</a>
+        </div>
+
+        <div id="backup-status" class="backup-status"></div>
+
+        {% if tenants %}
+          {% for tenant in tenants %}
+          <div class="tenant-card">
+            <div class="tenant-header">
+              <div>
+                <h3>{{ tenant.name }}</h3>
+                <small style="color: var(--ctp-subtext0);">Tenant ID: {{ tenant.tenant_id }}</small>
+              </div>
+              <div class="tenant-actions">
+                <button class="btn btn-success tenant-backup-btn" 
+                        data-tenant-id="{{ tenant.id }}" 
+                        data-tenant-name="{{ tenant.name }}">🚀 Backup</button>
+                <a href="/tenants/{{ tenant.id }}/edit" class="btn btn-primary">✏️ Edit</a>
+                <button type="button" class="tenant-delete-btn" 
+                        data-tenant-id="{{ tenant.id }}">🗑️ Delete</button>
+              </div>
+            </div>
+            
+            <div>
+              <strong>Client ID:</strong> {{ tenant.client_id[:20] }}...
+            </div>
+            
+            <div style="color: var(--ctp-green); margin-top: 0.5rem;">
+              ✅ Automatically backs up all active mailboxes (users + shared mailboxes)
+            </div>
+          </div>
+          {% endfor %}
+        {% else %}
+          <div class="no-tenants">
+            <h3>No Tenants Configured</h3>
+            <p>Add your first M365 tenant to get started with backups.</p>
+            <a href="/tenants/new" class="btn btn-success">➕ Add Your First Tenant</a>
+          </div>
+        {% endif %}
+      </main>
+
+      {% if tenants %}
+      <button id="backup-trigger" class="btn btn-primary" onclick="triggerBackup()">
+        🚀 Trigger Manual Backup
+      </button>
+      {% endif %}
+    </div>
+
+    <script>
+      async function deleteTenant(tenantId) {
+        if (!confirm('Are you sure you want to delete this tenant? This action cannot be undone.')) {
+          return;
+        }
+        
+        try {
+          const response = await fetch(`/tenants/${tenantId}/delete`, {
+            method: 'POST'
+          });
+          if (response.ok) {
+            window.location.reload();
+          } else {
+            alert('Error deleting tenant');
+          }
+        } catch (error) {
+          alert('Error: ' + error.message);
+        }
+      }
+
+      // Event delegation for tenant action buttons
+      document.addEventListener('DOMContentLoaded', function() {
+        // Backup buttons
+        document.querySelectorAll('.tenant-backup-btn').forEach(btn => {
+          btn.addEventListener('click', function() {
+            const tenantId = parseInt(this.dataset.tenantId);
+            const tenantName = this.dataset.tenantName;
+            backupTenant(tenantId, tenantName);
+          });
+        });
+
+        // Delete buttons
+        document.querySelectorAll('.tenant-delete-btn').forEach(btn => {
+          btn.addEventListener('click', function() {
+            const tenantId = parseInt(this.dataset.tenantId);
+            deleteTenant(tenantId);
+          });
+        });
+      });
+
+      async function triggerBackup() {
+        const button = document.getElementById('backup-trigger');
+        const status = document.getElementById('backup-status');
+        
+        button.disabled = true;
+        button.textContent = '⏳ Running Backup...';
+        status.style.display = 'none';
+        
+        try {
+          const response = await fetch('/api/backup/trigger', {
+            method: 'POST'
+          });
+          const result = await response.json();
+          
+          if (result.success) {
+            status.className = 'backup-status backup-success';
+            status.textContent = `✅ Backup completed! Snapshot ID: ${result.snapshot_id}, New messages: ${result.messages_inserted}/${result.total_messages}`;
+            status.style.display = 'block';
+            // Optionally redirect to snapshots after a delay
+            setTimeout(() => {
+              window.location.href = '/';
+            }, 3000);
+          } else {
+            throw new Error(result.error || 'Unknown error');
+          }
+        } catch (error) {
+          status.className = 'backup-status backup-error';
+          status.textContent = `❌ Backup failed: ${error.message}`;
+          status.style.display = 'block';
+        } finally {
+          button.disabled = false;
+          button.textContent = '🚀 Trigger Manual Backup';
+        }
+      }
+
+      async function backupTenant(tenantId, tenantName) {
+        const status = document.getElementById('backup-status');
+        
+        if (!confirm(`Start backup for tenant "${tenantName}"?`)) {
+          return;
+        }
+        
+        status.className = 'backup-status backup-success';
+        status.textContent = `⏳ Starting backup for ${tenantName}...`;
+        status.style.display = 'block';
+        
+        try {
+          const response = await fetch(`/api/backup/tenant/${tenantId}`, {
+            method: 'POST'
+          });
+          const result = await response.json();
+          
+          if (result.success) {
+            status.className = 'backup-status backup-success';
+            status.textContent = `✅ Backup completed for ${result.tenant_name}! Snapshot ID: ${result.snapshot_id}, Messages: ${result.messages_inserted}`;
+            setTimeout(() => {
+              window.location.href = `/snapshots/${result.snapshot_id}`;
+            }, 3000);
+          } else {
+            throw new Error(result.error || 'Unknown error');
+          }
+        } catch (error) {
+          status.className = 'backup-status backup-error';
+          status.textContent = `❌ Backup failed for ${tenantName}: ${error.message}`;
+          status.style.display = 'block';
+        }
+      }
+    </script>
+  </body>
+</html>

@@ -2,20 +2,167 @@
 <html>
   <head>
     <meta charset="utf-8">
-    <title>Snapshot {{ snapshot_id }}</title>
+    <title>Snapshot {{ snapshot_id }} - M365 Iron Backup</title>
     <link rel="stylesheet" href="/static/catppuccin.css">
+    <style>
+      .container {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 2rem;
+      }
+      .header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 2rem;
+        padding-bottom: 1rem;
+        border-bottom: 1px solid var(--ctp-overlay0);
+      }
+      .nav-links {
+        display: flex;
+        gap: 1rem;
+      }
+      .nav-links a {
+        padding: 0.5rem 1rem;
+        background: var(--ctp-surface1);
+        color: var(--ctp-text);
+        text-decoration: none;
+        border-radius: 4px;
+        border: 1px solid var(--ctp-overlay0);
+      }
+      .nav-links a:hover {
+        background: var(--ctp-surface2);
+      }
+      .message-table {
+        width: 100%;
+        border-collapse: collapse;
+        background: var(--ctp-surface0);
+        border-radius: 8px;
+        overflow: hidden;
+        border: 1px solid var(--ctp-overlay0);
+      }
+      .message-table th {
+        background: var(--ctp-surface1);
+        padding: 1rem;
+        text-align: left;
+        border-bottom: 1px solid var(--ctp-overlay0);
+        font-weight: bold;
+      }
+      .message-table td {
+        padding: 0.75rem 1rem;
+        border-bottom: 1px solid var(--ctp-overlay0);
+        color: var(--ctp-text);
+      }
+      .message-table tr:last-child td {
+        border-bottom: none;
+      }
+      .message-table tr:hover {
+        background: var(--ctp-surface1);
+        cursor: pointer;
+      }
+      .message-subject {
+        font-weight: 500;
+        color: var(--ctp-text);
+        max-width: 300px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .message-from {
+        color: var(--ctp-blue);
+        font-size: 0.9rem;
+      }
+      .message-date {
+        color: var(--ctp-subtext0);
+        font-size: 0.85rem;
+      }
+      .message-actions {
+        display: flex;
+        gap: 0.5rem;
+      }
+      .action-link {
+        padding: 0.25rem 0.5rem;
+        background: var(--ctp-surface2);
+        color: var(--ctp-text);
+        text-decoration: none;
+        border-radius: 4px;
+        font-size: 0.8rem;
+        transition: opacity 0.2s;
+      }
+      .action-link:hover {
+        opacity: 0.8;
+      }
+      .download-link {
+        background: var(--ctp-blue);
+        color: var(--ctp-base);
+      }
+      .attachment-indicator {
+        color: var(--ctp-yellow);
+        font-size: 0.9rem;
+      }
+      .empty-state {
+        text-align: center;
+        padding: 3rem;
+        color: var(--ctp-subtext0);
+      }
+    </style>
   </head>
   <body>
-    <main>
-      <h1>Snapshot {{ snapshot_id }}</h1>
-      <table>
-        <thead><tr><th>Tenant</th><th>User</th><th>Message ID</th></tr></thead>
-        <tbody>
-        {% for m in messages %}
-          <tr><td>{{ m.tenant }}</td><td>{{ m.user_principal }}</td><td>{{ m.message_id }}</td></tr>
-        {% endfor %}
-        </tbody>
-      </table>
-    </main>
+    <div class="container">
+      <div class="header">
+        <h1>📧 Snapshot {{ snapshot_id }}</h1>
+        <nav class="nav-links">
+          <a href="/">🏠 Dashboard</a>
+          <a href="/tenants">👥 Tenants</a>
+          <a href="/backup">🚀 Backup</a>
+          <a href="/search">🔍 Search</a>
+        </nav>
+      </div>
+
+      <main>
+        {% if messages %}
+          <p style="color: var(--ctp-subtext0); margin-bottom: 1rem;">
+            Found {{ messages|length }} messages in this snapshot
+          </p>
+          <table class="message-table">
+            <thead>
+              <tr>
+                <th>📧 Subject</th>
+                <th>👤 From</th>
+                <th>🏢 User</th>
+                <th>📅 Date</th>
+                <th>⚙️ Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+            {% for m in messages %}
+              <tr onclick="window.location.href='/message/{{ m.id }}'">
+                <td class="message-subject">
+                  {{ m.subject or 'No Subject' }}
+                  {% if m.has_attachments %}
+                    <span class="attachment-indicator">📎</span>
+                  {% endif %}
+                </td>
+                <td class="message-from">{{ m.from_address or 'Unknown' }}</td>
+                <td>{{ m.user_principal or 'Unknown' }}</td>
+                <td class="message-date">
+                  {{ m.received_datetime.strftime('%Y-%m-%d %H:%M') if m.received_datetime else 'Unknown' }}
+                </td>
+                <td class="message-actions" onclick="event.stopPropagation()">
+                  <a href="/message/{{ m.id }}" class="action-link">👁️ View</a>
+                  <a href="/api/message/{{ m.id }}/eml" class="action-link download-link" download>📥 EML</a>
+                </td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <div class="empty-state">
+            <h3>No Messages Found</h3>
+            <p>This snapshot doesn't contain any messages.</p>
+          </div>
+        {% endif %}
+      </main>
+    </div>
   </body>
 </html>

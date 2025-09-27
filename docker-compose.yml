@@ -1,4 +1,4 @@
-version: '3.8'
+
 services:
   db:
     image: postgres:17
@@ -15,20 +15,91 @@ services:
       timeout: 5s
       retries: 5
 
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  meilisearch:
+    image: getmeili/meilisearch:v1.10
+    restart: unless-stopped
+    environment:
+      MEILI_ENV: production
+      MEILI_MASTER_KEY: your-master-key-change-this
+      MEILI_HTTP_ADDR: 0.0.0.0:7700
+    ports:
+      - "7700:7700"
+    volumes:
+      - meilisearch_data:/meili_data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7700/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
   app:
     build: .
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+      meilisearch:
+        condition: service_healthy
     environment:
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/m365backup
       BACKUP_DIR: /data/m365_mail_backups
+      REDIS_URL: redis://redis:6379/0
+      MEILISEARCH_URL: http://meilisearch:7700
+      MEILISEARCH_KEY: your-master-key-change-this
     volumes:
       - ./:/app
       - m365_backups:/data
     ports:
-      - "6666:6666"
-    command: ["uvicorn", "m365_backup.web:app", "--host", "0.0.0.0", "--port", "6666"]
+      - "8080:8080"
+    command: ["uvicorn", "m365_backup.web:app", "--host", "0.0.0.0", "--port", "8080"]
+
+  celery-worker:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      meilisearch:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/m365backup
+      BACKUP_DIR: /data/m365_mail_backups
+      REDIS_URL: redis://redis:6379/0
+      MEILISEARCH_URL: http://meilisearch:7700
+      MEILISEARCH_KEY: your-master-key-change-this
+    volumes:
+      - ./:/app
+      - m365_backups:/data
+    command: ["celery", "-A", "m365_backup.tasks", "worker", "--loglevel=info", "--concurrency=2"]
+
+  celery-beat:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/m365backup
+      BACKUP_DIR: /data/m365_mail_backups
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - ./:/app
+      - m365_backups:/data
+    command: ["celery", "-A", "m365_backup.tasks", "beat", "--loglevel=info"]
 
   scheduler:
     build: .
@@ -46,3 +117,4 @@ services:
 volumes:
   m365_db_data:
   m365_backups:
+  meilisearch_data:
